@@ -46,17 +46,7 @@ pub enum TokenType {
     Comment,
     Eof,
 
-    UntermStr,
-    UnknownChar(char),
-    UnexpectedChar {
-        ch: char,
-        expected: &'static str,
-    },
-    UnexpectedEof,
-    InvalidInt(String),
-    InvalidReal(String),
-    InvalidIdent(String),
-
+    Error(LexError),
     // TODO: Maybe have these be lexed separately
     // Syntactic Keywords
     //Else,
@@ -83,6 +73,17 @@ pub enum TokenType {
     //Quasiquote,
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+pub enum LexError {
+    UntermStr,
+    UnknownChar(char),
+    UnexpectedChar { ch: char, expected: &'static str },
+    UnexpectedEof,
+    InvalidInt(String),
+    InvalidReal(String),
+    InvalidIdent(String),
+}
+
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 pub struct Token {
     pub kind: TokenType,
@@ -98,6 +99,7 @@ impl Token {
 impl Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use TokenType as tk;
+        use LexError as le;
         match &self.kind {
             tk::BoolLit(boolean) => write!(f, "Token bool: {boolean}, span: {}", self.span),
             tk::IntLit(int) => write!(f, "Token int: {int}, span {}", self.span),
@@ -120,27 +122,41 @@ impl Display for Token {
             tk::Dot => write!(f, "Token . at {}", self.span),
 
             tk::Eof => write!(f, "Token EOF at {}", self.span),
-            tk::UntermStr => write!(f, "Error token: unterminated string at {}", self.span),
-            tk::UnknownChar(ch) => {
-                write!(f, "Error token: unknown character '{ch}' at {}", self.span)
-            }
-            tk::UnexpectedChar { ch, expected } => match expected.len() {
-                0 => write!(f, "Error token: Illegal character '{ch}' at {}", self.span),
+            tk::Error(err) => match err {
+                le::UntermStr => write!(f, "Error token: unterminated string at {}", self.span),
+                le::UnknownChar(ch) => {
+                    write!(f, "Error token: unknown character '{ch}' at {}", self.span)
+                }
+                le::UnexpectedChar { ch, expected } => match expected.len() {
+                    0 => write!(f, "Error token: Illegal character '{ch}' at {}", self.span),
 
-                1 => write!(
+                    1 => write!(
+                        f,
+                        "Error token: expected '{expected}', got '{ch}' at {}",
+                        self.span
+                    ),
+                    _ => {
+                        // TODO: Format the expected string to be a comma separated list of characters
+                        write!(
+                            f,
+                            "Error token: expected one of {expected}, got '{ch}' at {}",
+                            self.span
+                        )
+                    }
+                },
+                le::UnexpectedEof => write!(f, "Error token: Unexpected EOF at {}", self.span.end),
+                le::InvalidInt(bad_int) => write!(
                     f,
-                    "Error token: expected '{expected}', got '{ch}' at {}",
+                    "Error token: Invalid integer literal \"{bad_int}\", at {}",
                     self.span
                 ),
-                _ => {
-                    // TODO: Format the expected string to be a comma separated list of characters
-                    write!(f, "Error token: expected one of {expected}, got '{ch}' at {}", self.span)
+                le::InvalidReal(bad_real) => {
+                    write!(f, "Token string: \"{bad_real}\", span {}", self.span)
+                }
+                le::InvalidIdent(bad_ident) => {
+                    write!(f, "Token string: \"{bad_ident}\", span {}", self.span)
                 }
             },
-            tk::UnexpectedEof => write!(f, "Error token: Unexpected EOF at {}", self.span.end),
-            tk::InvalidInt(bad_int) => write!(f, "Error token: Invalid integer literal \"{bad_int}\", at {}", self.span),
-            tk::InvalidReal(bad_real) => write!(f, "Token string: \"{bad_real}\", span {}", self.span),
-            tk::InvalidIdent(bad_ident) => write!(f, "Token string: \"{bad_ident}\", span {}", self.span),
         }
     }
 }
@@ -224,39 +240,39 @@ macro_rules! tok {
     [; $( $span:expr )?] => {
         TokenType::Comment
     };
+    [eof] => {
+        TokenType::Eof
+    };
 }
 
 /// Macro for shorthand error tokens
 #[macro_export]
 macro_rules! etok {
-    [eof] => {
-        TokenType::Eof
-    };
     [unterm_str] => {
-        TokenType::UntermStr
+        TokenType::Error(LexError::UntermStr)
     };
     [unknown_char $char:expr] => {
-        TokenType::UnknownChar($char)
+        TokenType::Error(LexError::UnknownChar($char))
     };
     [unexpected_char $char:expr] => {
-        TokenType::UnexpectedChar{ ch: $char, expected: "" }
+        TokenType::Error(LexError::UnexpectedChar{ ch: $char, expected: "" })
     };
     [expected $e:literal, got $g:expr] => {
-        TokenType::UnexpectedChar { ch: $g, expected: $e }
+        TokenType::Error(LexError::UnexpectedChar { ch: $g, expected: $e })
     };
     [expected_digit, got $g:expr] => {
-        TokenType::UnexpectedChar { ch: $g, expected: "1234567890" }
+        TokenType::Error(LexError::UnexpectedChar { ch: $g, expected: "1234567890" })
     };
     [unexpected_eof] => {
-        TokenType::UnexpectedEof
+        TokenType::Error(LexError::UnexpectedEof)
     };
     [invalid_int $e:expr] => {
-        TokenType::InvalidInt($e.to_string())
+        TokenType::Error(LexError::InvalidInt($e.to_string()))
     };
     [invalid_real $e:expr] => {
-        TokenType::InvalidReal($e.to_string())
+        TokenType::Error(LexError::InvalidReal($e.to_string()))
     };
     [invalid_ident $e:expr] => {
-        TokenType::InvalidIdent($e.to_string())
+        TokenType::Error(LexError::InvalidIdent($e.to_string()))
     };
 }

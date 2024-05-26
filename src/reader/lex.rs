@@ -1,8 +1,8 @@
 // Info on Scheme's lexical structure from here:
 // https://groups.csail.mit.edu/mac/ftpdir/scheme-reports/r5rs-html/r5rs_9.html#SEC73
 use super::span::{Position, Span};
-use super::token::{Token, TokenType};
-use crate::{etok, mk_tok, span, tok};
+use super::token::{Token, TokenType, LexError};
+use crate::{etok, span, tok};
 use std::{iter::Peekable, str::Chars};
 
 pub struct Lexer<'src> {
@@ -48,7 +48,7 @@ impl<'src> Lexer<'src> {
                 Some('(') => tok![vec],
                 Some('\\') => self.consume_char_lit(),
                 Some(ch) => etok![expected "tf(\\", got ch],
-                None => etok![eof],
+                None => tok![eof],
             },
             Some('.') => match self.peek_char() {
                 Some(ch) if ch.is_ascii_digit() => {
@@ -74,10 +74,11 @@ impl<'src> Lexer<'src> {
             Some(ch) if is_symbol_start(ch) => self.consume_ident(ch),
             Some(ch) => etok![unknown_char ch],
 
-            None => etok![eof],
+            None => tok![eof],
         };
 
         Token::new(kind, span![(token_start) to (self.pos)])
+
     }
 
     fn skip_whitespace(&mut self) {
@@ -294,7 +295,7 @@ mod tests {
             Token::new(tok![char '\r'], span!(7,1 to 6,3)),
             Token::new(tok![char '\0'], span!(8,1 to 8,3)),
             Token::new(tok![char '\\'], span!(9,1 to 9,3)),
-            Token::new(etok![eof], span!(9, 4)),
+            Token::new(tok![eof], span!(9, 4)),
         ];
 
         assert_tokens(sample, answers)
@@ -302,15 +303,22 @@ mod tests {
 
     #[test]
     fn int_test() {
-        let sample = "123 \n0 \n-123 \n+123 \n12x3 \n123x";
+        let sample = concat! {
+            "123\n", 
+            "0\n",
+            "-123\n", 
+            "+123\n", 
+            "12x3\n", 
+            "123x\n"
+        };
         let answers = &[
             Token::new(tok![int 123], span![1,1 to 1,3]),
             Token::new(tok![int 0], span![2, 1]),
-            Token::new(tok![int - 123], span![3,1 to 3,4]),
+            Token::new(tok![int -123], span![3,1 to 3,4]),
             Token::new(tok![int 123], span![4,1 to 4,4]),
-            Token::new(etok![expected ".", got 'x'], span![5,1 to 6,4]),
+            Token::new(etok![expected ".", got 'x'], span![5,1 to 5,4]),
             Token::new(etok![expected ".", got 'x'], span![6,1 to 7,4]),
-            Token::new(etok![eof], span![6, 5]),
+            Token::new(tok![eof], span![6, 5]),
         ];
 
         assert_tokens(sample, answers);
@@ -336,7 +344,7 @@ mod tests {
             Token::new(tok![real 0.06], span![5,1 to 5,4]),
             Token::new(etok![unexpected_char 'a'], span![5,1 to 5,3]),
             Token::new(etok![expected "1234567890-+", got 'd'], span![6,1 to 6,7]),
-            Token::new(etok![eof], span![6, 8]),
+            Token::new(tok![eof], span![6, 8]),
         ];
 
         assert_tokens(sample, answers);
@@ -348,7 +356,7 @@ mod tests {
         let answers = &[
             Token::new(tok![#f], span![1,1 to 1,2]),
             Token::new(tok![#t], span![1,4 to 1,5]),
-            Token::new(etok![eof], span![1, 6]),
+            Token::new(tok![eof], span![1, 6]),
         ];
 
         assert_tokens(sample, answers);
@@ -362,7 +370,7 @@ mod tests {
             Token::new(tok![rparen], span![1, 2]),
             Token::new(tok![lparen], span![2, 1]),
             Token::new(tok![rparen], span![2, 4]),
-            Token::new(etok![eof], span![2, 6]),
+            Token::new(tok![eof], span![2, 6]),
         ];
 
         assert_tokens(sample, answers);
@@ -383,7 +391,7 @@ mod tests {
             Token::new(tok![ident "+"], span![3,1 to 3,1]),
             Token::new(tok![ident "."], span![4,1 to 4,1]),
             Token::new(tok![ident "..."], span![5,1 to 5,3]),
-            Token::new(etok![eof], span![6, 1]),
+            Token::new(tok![eof], span![6, 1]),
         ];
 
         assert_tokens(sample, answers);
@@ -417,7 +425,7 @@ mod tests {
             Token::new(tok![str "abc\"def"], span![2,2 to 2,9]),
             Token::new(tok![str "abc\\def"], span![3,2 to 3,9]),
             Token::new(tok![str "abc\ndef"], span![4,2 to 4,9]),
-            Token::new(etok![eof], span![5, 1]),
+            Token::new(tok![eof], span![5, 1]),
         ];
 
         assert_tokens(sample, answers);
@@ -434,7 +442,7 @@ mod tests {
             Token::new(tok![;], span![2,6 to 2,32]),
             Token::new(tok![int 3], span!(3, 1)),
             Token::new(tok![rparen], span!(3, 2)),
-            Token::new(etok![eof], span!(3, 3)),
+            Token::new(tok![eof], span!(3, 3)),
         ];
 
         assert_tokens(sample, answers);

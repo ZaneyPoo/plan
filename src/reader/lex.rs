@@ -77,8 +77,16 @@ impl<'src> Lexer<'src> {
             None => tok![eof],
         };
 
-        Token::new(kind, span![(token_start) to (self.pos)])
+        let token = Token::new(kind, span![(token_start) to (self.pos)]);
 
+        // Psuedo panic mode: clear the chamber please!!
+        if let TokenType::Error(_) = token.kind {
+            while self.peek_char().is_some_and(|c| !is_delimiter(*c))  {
+                self.next_char();
+            }
+        }
+
+        token
     }
 
     fn skip_whitespace(&mut self) {

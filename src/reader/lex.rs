@@ -23,7 +23,7 @@ impl<'src> Lexer<'src> {
     }
 
     pub fn next_token(&mut self) -> Token {
-        // TODO: Refactor this to be more multilayered 
+        // TODO: Refactor this to be more multilayered
         // since there's so many intersecting states
         self.skip_whitespace();
         let token_start = self.pos;
@@ -47,16 +47,7 @@ impl<'src> Lexer<'src> {
                 Some('f' | 'F') => tok![#f],
                 Some('(') => tok![vec],
                 Some('\\') => self.consume_char_lit(),
-                // Radix specifier
-                Some('b' | 'B') => todo!(),
-                Some('o' | 'O') => todo!(),
-                Some('d' | 'D') => todo!(),
-                Some('x' | 'X') => todo!(),
-                // Exactness specifier
-                Some('i' | 'I') => todo!(),
-                Some('e' | 'E') => todo!(),
-
-                Some(ch) => etok![expected "tf(\\bodx", got ch],
+                Some(ch) => etok![expected "tf(\\", got ch],
                 None => etok![eof],
             },
             Some('.') => match self.peek_char() {
@@ -116,18 +107,25 @@ impl<'src> Lexer<'src> {
     }
 
     fn consume_char_lit(&mut self) -> TokenType {
-        // TODO: Handle all the wacky named char literals
+        // In favor of simplicity, we just have
         match self.next_char() {
-            Some(ch) => {
-                self.advance_while(|c| !is_delimiter(c), |_| {});
-                tok![char ch]
+            Some('\\') => {
+                let token_type = match self.peek_char() {
+                    Some('n') => tok![char '\n'],
+                    Some('r') => tok![char '\r'],
+                    Some('t') => tok![char '\t'],
+                    Some('0') => tok![char '\0'],
+                    Some(_) | None => tok![char '\\'],
+                };
+                self.next_char();
+                token_type
             }
+            Some(ch) => tok![char ch],
             None => etok![unexpected_eof],
         }
     }
 
     fn consume_number(&mut self, sign: char) -> TokenType {
-        // TODO: Handle exponent, exactness, and radix markers :puke:
         let mut buf = sign.to_string();
 
         let last = self.fill_buf_while(|c| c.is_ascii_digit() && c != '.', &mut buf);
@@ -275,15 +273,28 @@ mod tests {
     // These tests are shamelessly stolen from here: https://github.com/MattX/peroxide/blob/master/src/lex.rs
     #[test]
     fn char_test() {
-        let sample = "#\\! \n#\\n \n#\\  n#\\newline \n#\\space \n#\\defS \n#\\";
+        let sample = concat! {
+            r"#\!", "\n",
+            r"#\n", "\n",
+            r"#\#", "\n",
+            r"#\ ", "\n",
+            r"#\\n", "\n",
+            r"#\\t", "\n",
+            r"#\\r", "\n",
+            r"#\\0", "\n",
+            r"#\\",
+        };
         let answers = &[
             Token::new(tok![char '!'], span!(1,1 to 1,3)),
             Token::new(tok![char 'n'], span!(2,1 to 2,3)),
+            Token::new(tok![char '#'], span!(4,1 to 3,3)),
             Token::new(tok![char ' '], span!(3,1 to 3,3)),
-            Token::new(tok![char '\n'], span!(4,1 to 4,9)),
-            Token::new(tok![char ' '], span!(5,1 to 5,7)),
-            Token::new(etok![expected "", got 'e'], span!(6,1 to 6,4)),
-            Token::new(etok![unexpected_eof], span!(7,1 to 7,3)),
+            Token::new(tok![char '\n'], span!(5,1 to 4,3)),
+            Token::new(tok![char '\t'], span!(6,1 to 5,3)),
+            Token::new(tok![char '\r'], span!(7,1 to 6,3)),
+            Token::new(tok![char '\0'], span!(8,1 to 8,3)),
+            Token::new(tok![char '\\'], span!(9,1 to 9,3)),
+            Token::new(etok![eof], span!(9, 4)),
         ];
 
         assert_tokens(sample, answers)
@@ -321,7 +332,7 @@ mod tests {
             Token::new(tok![real 123.4567], span![1,1 to 1,8]),
             Token::new(tok![real 0.4567], span![2,1 to 2,5]),
             Token::new(tok![real 0.], span![3,1 to 3,2]),
-            Token::new(tok![real -0.], span![4,1 to 4,3]),
+            Token::new(tok![real - 0.], span![4,1 to 4,3]),
             Token::new(tok![real 0.06], span![5,1 to 5,4]),
             Token::new(etok![unexpected_char 'a'], span![5,1 to 5,3]),
             Token::new(etok![expected "1234567890-+", got 'd'], span![6,1 to 6,7]),

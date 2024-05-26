@@ -1,3 +1,5 @@
+mod span;
+mod token;
 mod lex;
 mod parse;
 

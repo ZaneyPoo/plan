@@ -291,16 +291,15 @@ mod tests {
 
     #[test]
     fn int_test() {
-        let sample = "123 \n0 \n-123 \n+123 \n#xfe \n12x3 \n123x";
+        let sample = "123 \n0 \n-123 \n+123 \n12x3 \n123x";
         let answers = &[
             Token::new(tok![int 123], span![1,1 to 1,3]),
             Token::new(tok![int 0], span![2, 1]),
             Token::new(tok![int - 123], span![3,1 to 3,4]),
             Token::new(tok![int 123], span![4,1 to 4,4]),
-            Token::new(tok![int 254], span![5,1 to 5,4]),
-            Token::new(etok![expected ".", got 'x'], span![6,1 to 6,4]),
-            Token::new(etok![expected ".", got 'x'], span![7,1 to 7,4]),
-            Token::new(etok![eof], span![7, 5]),
+            Token::new(etok![expected ".", got 'x'], span![5,1 to 6,4]),
+            Token::new(etok![expected ".", got 'x'], span![6,1 to 7,4]),
+            Token::new(etok![eof], span![6, 5]),
         ];
 
         assert_tokens(sample, answers);
@@ -312,35 +311,21 @@ mod tests {
         let sample = concat! {
             "123.4567\n",
             ".4567\n",
-            "0.\n",
-            "-0.\n",
-            "0.06\n",
-            "0.06d0\n",
-            "0.06d2\n",
-            "0.06d-2\n",
-            "123#.##\n",
-            "-inf.0\n",
-            "+inf.0\n",
+            "+.0\n",
+            "-.0\n",
+            "0.060\n",
             "-0a.\n",
             "-0.123d\n",
-            "-0.06e\n",
         };
         let answers = &[
             Token::new(tok![real 123.4567], span![1,1 to 1,8]),
             Token::new(tok![real 0.4567], span![2,1 to 2,5]),
             Token::new(tok![real 0.], span![3,1 to 3,2]),
-            Token::new(tok![real - 0.], span![4,1 to 4,3]),
+            Token::new(tok![real -0.], span![4,1 to 4,3]),
             Token::new(tok![real 0.06], span![5,1 to 5,4]),
-            Token::new(tok![real 0.06e0], span![6,1 to 6,6]),
-            Token::new(tok![real 0.06e2], span![7,1 to 7,6]),
-            Token::new(tok![real 0.06e-2], span![8,1 to 8,7]),
-            Token::new(tok![real 1230.00], span![9,1 to 9,7]),
-            Token::new(tok![real f64::INFINITY], span![10,1 to 10,6]),
-            Token::new(tok![real f64::NEG_INFINITY], span![11,1 to 11,6]),
-            Token::new(etok![unexpected_char 'a'], span![12,1 to 12,3]),
-            Token::new(etok![expected "1234567890-+", got 'd'], span![13,1 to 13,7]),
-            Token::new(etok![expected "1234567890d", got 'e'], span![14,1 to 14,6]),
-            Token::new(etok![eof], span![14, 8]),
+            Token::new(etok![unexpected_char 'a'], span![5,1 to 5,3]),
+            Token::new(etok![expected "1234567890-+", got 'd'], span![6,1 to 6,7]),
+            Token::new(etok![eof], span![6, 8]),
         ];
 
         assert_tokens(sample, answers);

@@ -138,7 +138,10 @@ impl<'src> Lexer<'src> {
 
     fn consume_number(&mut self, num_buf: &mut String) -> TokenType {
         //let last = self.fill_buf_while(|c| c.is_ascii_digit() && c != '.', num_buf);
-        while self.peek_char().is_some_and(|c| c.is_ascii_digit() && *c != '.') {
+        while self
+            .peek_char()
+            .is_some_and(|c| c.is_ascii_digit() && *c != '.')
+        {
             num_buf.push(self.expect_next());
         }
 
@@ -157,7 +160,7 @@ impl<'src> Lexer<'src> {
     }
 
     fn consume_real(&mut self, real_buf: &mut String) -> TokenType {
-        while self.peek_char().is_some_and(|c| c.is_ascii_digit()){
+        while self.peek_char().is_some_and(|c| c.is_ascii_digit()) {
             real_buf.push(self.expect_next());
         }
 
@@ -268,10 +271,7 @@ mod tests {
         for answer in answers {
             let token = lexer.next_token();
             // TODO: Actually worry about the spans being correct
-            assert_eq!(
-                answer.kind, token.kind,
-                "\nExpected: {answer}\nGot: {token}"
-            )
+            assert_eq!(*answer, token, "\nExpected: {answer}\nGot: {token}")
         }
     }
 
@@ -356,9 +356,9 @@ mod tests {
 
     #[test]
     fn bool_test() {
-        let sample = concat! { 
-            "#f\n", 
-            "#t\n", 
+        let sample = concat! {
+            "#f\n",
+            "#t\n",
         };
         let answers = &[
             Token::new(tok![#f], span![1,1 to 1,2]),
@@ -370,17 +370,43 @@ mod tests {
     }
 
     #[test]
+    fn delimiter_test() {
+        let sample = concat! {
+            "()\n",
+            "[]\n",
+            "{}\n",
+            ",\n",
+            ",@\n",
+            "'\n",
+        };
+        let answers = &[
+            Token::new(tok![lparen], span![1,1]),
+            Token::new(tok![rparen], span![1,2]),
+            Token::new(tok![lbrack], span![2,1]),
+            Token::new(tok![rbrack], span![2,2]),
+            Token::new(tok![lcurly], span![3,1]),
+            Token::new(tok![rcurly], span![3,2]),
+            Token::new(tok![,], span![4,1]),
+            Token::new(tok![,@], span![5,1 to 5,2]),
+            Token::new(tok![quote], span![6,1]),
+            Token::new(tok![eof], span![7,1]),
+        ];
+        assert_tokens(sample, answers);
+    }
+
+    #[test]
     fn parens_test() {
         let sample = concat! {
-            "() \n", 
-            "(  ) ", 
+            "() \n",
+            "(  ) \n",
+
         };
         let answers = &[
             Token::new(tok![lparen], span![1, 1]),
             Token::new(tok![rparen], span![1, 2]),
             Token::new(tok![lparen], span![2, 1]),
             Token::new(tok![rparen], span![2, 4]),
-            Token::new(tok![eof], span![2, 6]),
+            Token::new(tok![eof], span![3, 1]),
         ];
 
         assert_tokens(sample, answers);
@@ -443,8 +469,8 @@ mod tests {
 
     #[test]
     fn comment_test() {
-        let sample = concat! { 
-            "; this is a comment\n", 
+        let sample = concat! {
+            "; this is a comment\n",
             "(+ 2 ; this is a comment inline\n",
             "3)\n"
         };

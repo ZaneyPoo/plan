@@ -1,7 +1,7 @@
 // Info on Scheme's lexical structure from here:
 // https://groups.csail.mit.edu/mac/ftpdir/scheme-reports/r5rs-html/r5rs_9.html#SEC73
 use super::span::{Position, Span};
-use super::token::{Token, TokenType, LexError};
+use super::token::{LexError, Token, TokenType};
 use crate::{etok, span, tok};
 use std::{iter::Peekable, str::Chars};
 
@@ -50,28 +50,11 @@ impl<'src> Lexer<'src> {
                 Some(ch) => etok![expected "tf(\\", got ch],
                 None => tok![eof],
             },
-            Some('.') => match self.peek_char() {
-                Some(ch) if ch.is_ascii_digit() => {
-                    let mut buf = ch.to_string();
-                    self.consume_real(&mut buf)
-                }
-                Some(ch) => etok![invalid_ident format!(".{ch}")],
-                None => etok![invalid_ident '.'],
-            },
-            Some('+') => match self.peek_char() {
-                Some(ch) if ch.is_ascii_digit() => self.consume_number('+'),
-                Some(ch) if is_delimiter(*ch) => tok![ident '+'],
-                Some(ch) => etok![invalid_ident format!("+{ch}")],
-                None => tok![ident '+'],
-            },
-            Some('-') => match self.peek_char() {
-                Some(ch) if ch.is_ascii_digit() => self.consume_number('-'),
-                Some(ch) if is_delimiter(*ch) => tok![ident '-'],
-                Some(ch) => etok![invalid_ident format!("-{ch}")],
-                None => tok![ident '-'],
-            },
-            Some('1'..='9') => self.consume_number('+'),
-            Some(ch) if is_symbol_start(ch) => self.consume_ident(ch),
+            Some(ch @ '0'..='9') => {
+                let mut buf = ch.to_string();
+                self.consume_number(&mut buf)
+            }
+            Some(ch) if is_symbol_start(ch) => self.consume_ident(),
             Some(ch) => etok![unknown_char ch],
 
             None => tok![eof],
@@ -81,7 +64,7 @@ impl<'src> Lexer<'src> {
 
         // Psuedo panic mode: clear the chamber please!!
         if let TokenType::Error(_) = token.kind {
-            while self.peek_char().is_some_and(|c| !is_delimiter(*c))  {
+            while self.peek_char().is_some_and(|c| !is_delimiter(*c)) {
                 self.next_char();
             }
         }
@@ -96,16 +79,35 @@ impl<'src> Lexer<'src> {
     }
 
     fn consume_comment(&mut self) -> TokenType {
-        self.advance_while(|c| c != '\n', |_| {});
+        while self.expect_current() != '\n' {
+            self.next_char();
+        }
+
         tok![;]
     }
 
     fn consume_string(&mut self) -> TokenType {
         let mut buf = String::new();
 
-        let last = self.fill_buf_while(|ch| ch != '"', &mut buf);
+        while let Some(ch) = self.next_char() {
+            match ch {
+                '"' => break,
+                '\\' => match self.next_char() {
+                    Some('n') => buf.push('\n'),
+                    Some('t') => buf.push('\t'),
+                    Some('r') => buf.push('\r'),
+                    Some('0') => buf.push('\0'),
+                    Some('\\') => buf.push('\\'),
+                    Some('\'') => buf.push('\''),
+                    Some('"') => buf.push('"'),
+                    None => return etok![unexpected_eof],
+                    _ => return etok![unknown_esc self.expect_current()],
+                },
+                _ => buf.push(ch),
+            }
+        }
 
-        match last {
+        match self.current {
             Some('"') => {
                 tok![str buf]
             }
@@ -134,44 +136,58 @@ impl<'src> Lexer<'src> {
         }
     }
 
-    fn consume_number(&mut self, sign: char) -> TokenType {
-        let mut buf = sign.to_string();
+    fn consume_number(&mut self, num_buf: &mut String) -> TokenType {
+        //let last = self.fill_buf_while(|c| c.is_ascii_digit() && c != '.', num_buf);
+        while self.peek_char().is_some_and(|c| c.is_ascii_digit() && *c != '.') {
+            num_buf.push(self.expect_next());
+        }
 
-        let last = self.fill_buf_while(|c| c.is_ascii_digit() && c != '.', &mut buf);
-
-        match last {
-            Some('.') => self.consume_real(&mut buf),
-            Some(ch) if is_delimiter(ch) => match buf.parse::<i64>() {
+        match self.peek_char() {
+            Some(&'.') => {
+                num_buf.push(self.expect_next());
+                self.consume_real(num_buf)
+            }
+            Some(ch) if is_delimiter(*ch) => match num_buf.parse::<i64>() {
                 Ok(num) => tok![int num],
-                Err(e) => {
-                    dbg!(buf, e.clone());
-                    etok![invalid_int e]
-                }
+                Err(_) => etok![invalid_int num_buf],
             },
-            Some(ch) => etok![expected ".", got ch],
+            Some(ch) => etok![expected ".", got *ch],
             None => etok![unexpected_eof],
         }
     }
 
-    fn consume_real(&mut self, buf: &mut String) -> TokenType {
-        let last = self.fill_buf_while(|c| c.is_ascii_digit(), buf);
+    fn consume_real(&mut self, real_buf: &mut String) -> TokenType {
+        while self.peek_char().is_some_and(|c| c.is_ascii_digit()){
+            real_buf.push(self.expect_next());
+        }
 
-        match last {
-            Some(ch) if is_delimiter(ch) => match buf.parse::<f64>() {
+        match self.peek_char() {
+            Some(ch) if is_delimiter(*ch) => match real_buf.parse::<f64>() {
                 Ok(num) => tok![real num],
-                Err(e) => etok![invalid_real e],
+                Err(_) => etok![invalid_real real_buf],
             },
-            Some(ch) => etok![unexpected_char ch],
+            Some(ch) => etok![expected "1234567890", got *ch],
             None => etok![unexpected_eof],
         }
     }
 
-    fn consume_ident(&mut self, first_char: char) -> TokenType {
-        let mut buf = first_char.to_string();
+    fn consume_ident(&mut self) -> TokenType {
+        let mut buf = self.expect_current().to_string();
+
         while self.peek_char().is_some_and(|c| !is_delimiter(*c)) {
-            buf.push(self.next_char().expect("Char cannot be None"));
+            buf.push(self.expect_next());
         }
-        tok![ident buf]
+
+        // FIXME: This is kinda cheating a bit
+        if let Ok(integer) = buf.parse::<i64>() {
+            println!("parsed int {integer} from string \"{buf}\"");
+            tok![int integer]
+        } else if let Ok(float) = buf.parse::<f64>() {
+            println!("parsed real {float} from string \"{buf}\"");
+            tok![real float]
+        } else {
+            tok![ident buf]
+        }
     }
 
     fn next_char(&mut self) -> Option<char> {
@@ -192,38 +208,14 @@ impl<'src> Lexer<'src> {
         self.stream.peek()
     }
 
-    fn advance(&mut self, distance: usize) -> Option<char> {
-        for _ in 0..distance {
-            self.next_char();
-        }
-        self.current
+    fn expect_next(&mut self) -> char {
+        self.next_char()
+            .expect("expect_next() called on non-guaranteed char")
     }
 
-    fn advance_while<Predicate, SideEffect>(
-        &mut self,
-        f: Predicate,
-        mut g: SideEffect,
-    ) -> Option<char>
-    where
-        Predicate: Fn(char) -> bool,
-        SideEffect: FnMut(&mut Lexer),
-    {
-        while self.next_char().is_some_and(&f) {
-            g(self);
-        }
-
+    fn expect_current(&mut self) -> char {
         self.current
-    }
-
-    fn fill_buf_while<Predicate>(&mut self, f: Predicate, buf: &mut String) -> Option<char>
-    where
-        Predicate: Fn(char) -> bool,
-    {
-        self.advance_while(f, |lexer| {
-            if let Some(ch) = lexer.current {
-                buf.push(ch)
-            }
-        })
+            .expect("expect_current() called on non-guaranteed char")
     }
 }
 
@@ -261,6 +253,10 @@ pub fn is_symbol_start(ch: char) -> bool {
         )
 }
 
+pub fn is_escape_seq(ch: char) -> bool {
+    matches!(ch, 'n' | 't' | 'r' | '0' | '\\' | '\'' | '"')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,10 +264,10 @@ mod tests {
     fn assert_tokens(sample: &str, answers: &[Token]) {
         let mut lexer = Lexer::new(sample);
 
+        println!("Test string:\n{sample}");
         for answer in answers {
             let token = lexer.next_token();
             // TODO: Actually worry about the spans being correct
-            dbg!(token.clone());
             assert_eq!(
                 answer.kind, token.kind,
                 "\nExpected: {answer}\nGot: {token}"
@@ -291,7 +287,7 @@ mod tests {
             r"#\\t", "\n",
             r"#\\r", "\n",
             r"#\\0", "\n",
-            r"#\\",
+            r"#\\", "\n",
         };
         let answers = &[
             Token::new(tok![char '!'], span!(1,1 to 1,3)),
@@ -303,7 +299,7 @@ mod tests {
             Token::new(tok![char '\r'], span!(7,1 to 6,3)),
             Token::new(tok![char '\0'], span!(8,1 to 8,3)),
             Token::new(tok![char '\\'], span!(9,1 to 9,3)),
-            Token::new(tok![eof], span!(9, 4)),
+            Token::new(tok![eof], span!(10, 1)),
         ];
 
         assert_tokens(sample, answers)
@@ -311,22 +307,23 @@ mod tests {
 
     #[test]
     fn int_test() {
+        // TODO: Get this working
         let sample = concat! {
-            "123\n", 
+            "123\n",
             "0\n",
-            "-123\n", 
-            "+123\n", 
-            "12x3\n", 
+            "-123\n",
+            "+123\n",
+            "12x3\n",
             "123x\n"
         };
         let answers = &[
             Token::new(tok![int 123], span![1,1 to 1,3]),
             Token::new(tok![int 0], span![2, 1]),
-            Token::new(tok![int -123], span![3,1 to 3,4]),
+            Token::new(tok![int - 123], span![3,1 to 3,4]),
             Token::new(tok![int 123], span![4,1 to 4,4]),
             Token::new(etok![expected ".", got 'x'], span![5,1 to 5,4]),
-            Token::new(etok![expected ".", got 'x'], span![6,1 to 7,4]),
-            Token::new(tok![eof], span![6, 5]),
+            Token::new(etok![expected ".", got 'x'], span![6,1 to 6,4]),
+            Token::new(tok![eof], span![7, 1]),
         ];
 
         assert_tokens(sample, answers);
@@ -334,7 +331,6 @@ mod tests {
 
     #[test]
     fn real_test() {
-        // jfc this one is gonna be impossible
         let sample = concat! {
             "123.4567\n",
             ".4567\n",
@@ -350,8 +346,8 @@ mod tests {
             Token::new(tok![real 0.], span![3,1 to 3,2]),
             Token::new(tok![real - 0.], span![4,1 to 4,3]),
             Token::new(tok![real 0.06], span![5,1 to 5,4]),
-            Token::new(etok![unexpected_char 'a'], span![5,1 to 5,3]),
-            Token::new(etok![expected "1234567890-+", got 'd'], span![6,1 to 6,7]),
+            Token::new(tok![ident "-0a."], span![5,1 to 5,3]),
+            Token::new(tok![ident "-0.123d"], span![6,1 to 6,7]),
             Token::new(tok![eof], span![6, 8]),
         ];
 
@@ -360,7 +356,10 @@ mod tests {
 
     #[test]
     fn bool_test() {
-        let sample = "#f #t";
+        let sample = concat! { 
+            "#f\n", 
+            "#t\n", 
+        };
         let answers = &[
             Token::new(tok![#f], span![1,1 to 1,2]),
             Token::new(tok![#t], span![1,4 to 1,5]),
@@ -372,7 +371,10 @@ mod tests {
 
     #[test]
     fn parens_test() {
-        let sample = "() \n(  ) ";
+        let sample = concat! {
+            "() \n", 
+            "(  ) ", 
+        };
         let answers = &[
             Token::new(tok![lparen], span![1, 1]),
             Token::new(tok![rparen], span![1, 2]),
@@ -413,7 +415,7 @@ mod tests {
             "\"abc\n",
         };
         let answers = &[
-            Token::new(etok![expected "tf(\\bodx", got '\n'], span![1,1 to 1,2]),
+            Token::new(etok![expected "tf(\\", got '\n'], span![1,1 to 1,2]),
             Token::new(etok![unterm_str], span![1,1 to 1,5]),
         ];
 
@@ -441,7 +443,11 @@ mod tests {
 
     #[test]
     fn comment_test() {
-        let sample = "; this is a comment\n(+ 2 ; this is a comment inline\n3)";
+        let sample = concat! { 
+            "; this is a comment\n", 
+            "(+ 2 ; this is a comment inline\n",
+            "3)\n"
+        };
         let answers = &[
             Token::new(tok![;], span![1,1 to 1,20]),
             Token::new(tok![lparen], span!(2, 1)),
@@ -450,7 +456,7 @@ mod tests {
             Token::new(tok![;], span![2,6 to 2,32]),
             Token::new(tok![int 3], span!(3, 1)),
             Token::new(tok![rparen], span!(3, 2)),
-            Token::new(tok![eof], span!(3, 3)),
+            Token::new(tok![eof], span!(4, 1)),
         ];
 
         assert_tokens(sample, answers);

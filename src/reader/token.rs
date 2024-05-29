@@ -82,6 +82,7 @@ pub enum LexError {
     InvalidInt(String),
     InvalidReal(String),
     InvalidIdent(String),
+    UnknownEscape(String),
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
@@ -151,10 +152,13 @@ impl Display for Token {
                     self.span
                 ),
                 le::InvalidReal(bad_real) => {
-                    write!(f, "Token string: \"{bad_real}\", span {}", self.span)
+                    write!(f, "Error token: Invalid real literal: \"{bad_real}\", span {}", self.span)
                 }
                 le::InvalidIdent(bad_ident) => {
-                    write!(f, "Token string: \"{bad_ident}\", span {}", self.span)
+                    write!(f, "Error token: Invalid identifier: \"{bad_ident}\", span {}", self.span)
+                }
+                le::UnknownEscape(esc) => {
+                    write!(f, "Error token: Unknown escape sequence: \"{esc}\", span {}", self.span)
                 }
             },
         }
@@ -274,5 +278,8 @@ macro_rules! etok {
     };
     [invalid_ident $e:expr] => {
         TokenType::Error(LexError::InvalidIdent($e.to_string()))
+    };
+    [unknown_esc $e:expr] => {
+        TokenType::Error(LexError::UnknownEscape($e.to_string()))
     };
 }
